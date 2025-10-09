@@ -1,0 +1,15 @@
+# 核心依赖
+requests>=2.25.1
+openpyxl>=3.0.9
+beautifulsoup4>=4.9.3
+
+# Selenium 相关
+selenium>=4.0.0
+undetected-chromedriver>=3.4.0
+webdriver-manager>=3.8.0
+
+# GUI (通常Python自带，但某些环境可能需要)
+# tkinter 通常是Python标准库的一部分
+
+# 可选依赖（用于更好的兼容性）
+lxml>=4.6.3
