@@ -42,14 +42,26 @@ class JDPriceFetcherApp:
         
         # 添加测试按钮
         tk.Button(self.root, text="测试京东访问", command=self.test_jd_access, width=20, bg="#9C27B0", fg="white").pack(pady=3)
+        tk.Button(self.root, text="测试当当访问", command=self.test_dd_access, width=20, bg="#4CAF50", fg="white").pack(pady=3)
         
         self.start_btn = tk.Button(self.root, text="开始执行", command=self.start, width=20, bg="#FF9800", fg="white")
         self.start_btn.pack(pady=5)
 
         self.progress = ttk.Progressbar(self.root, length=400, mode='determinate')
         self.progress.pack(pady=10)
-        self.log_box = tk.Text(self.root, height=10, width=75, wrap='word', state='disabled', bg="#f4f4f4")
-        self.log_box.pack(pady=10)
+        
+        # 创建带滚动条的日志框
+        log_frame = tk.Frame(self.root)
+        log_frame.pack(pady=10)
+        
+        # 创建文本框和滚动条
+        self.log_box = tk.Text(log_frame, height=10, width=75, wrap='word', state='disabled', bg="#f4f4f4")
+        scrollbar = tk.Scrollbar(log_frame, orient="vertical", command=self.log_box.yview)
+        self.log_box.configure(yscrollcommand=scrollbar.set)
+        
+        # 布局
+        self.log_box.pack(side="left", fill="both", expand=True)
+        scrollbar.pack(side="right", fill="y")
 
     # ---------------- 日志输出 ----------------
     def log(self, msg):
@@ -81,6 +93,9 @@ class JDPriceFetcherApp:
         threading.Thread(target=self.process_excel).start()
 
     def process_excel(self):
+        # 记录开始时间
+        start_time = time.time()
+        
         try:
             # 初始化浏览器
             self.log("🚀 正在启动浏览器...")
@@ -99,10 +114,12 @@ class JDPriceFetcherApp:
 
             # 找出 ISBN 列
             isbn_col = None
-            for col in range(1, sheet.max_column + 1):
-                if str(sheet.cell(row=1, column=col).value).strip().lower() in ("isbn", "isbn号"):
-                    isbn_col = col
-                    break
+            if sheet is not None:  # 添加类型检查
+                for col in range(1, sheet.max_column + 1):
+                    cell_value = sheet.cell(row=1, column=col).value
+                    if cell_value is not None and str(cell_value).strip().lower() in ("isbn", "isbn号"):
+                        isbn_col = col
+                        break
 
             if not isbn_col:
                 messagebox.showerror("错误", "未找到名为 ISBN 的列")
@@ -110,47 +127,68 @@ class JDPriceFetcherApp:
                 return
 
             # 新增列：京东价格、当当价格
-            jd_price_col = sheet.max_column + 1
-            dd_price_col = jd_price_col + 1
-            dd_discount_col = dd_price_col + 1
-            sheet.cell(row=1, column=jd_price_col).value = "京东价格"
-            sheet.cell(row=1, column=dd_price_col).value = "当当价格"
-            sheet.cell(row=1, column=dd_discount_col).value = "当当优惠"
+            if sheet is not None:  # 添加类型检查
+                jd_price_col = sheet.max_column + 1
+                dd_price_col = jd_price_col + 1
+                dd_discount_col = dd_price_col + 1
+                # 添加类型忽略注释以消除警告
+                sheet.cell(row=1, column=jd_price_col).value = "京东价格"  # type: ignore
+                sheet.cell(row=1, column=dd_price_col).value = "当当价格"  # type: ignore
+                sheet.cell(row=1, column=dd_discount_col).value = "当当优惠"  # type: ignore
 
-            total = sheet.max_row - 1
-            self.progress["maximum"] = total
+                total = sheet.max_row - 1
+                self.progress["maximum"] = total
 
-            for i in range(2, sheet.max_row + 1):
-                try:
-                    isbn = str(sheet.cell(row=i, column=isbn_col).value).strip()
-                    if not isbn:
-                        continue
+                for i in range(2, sheet.max_row + 1):
+                    try:
+                        cell_value = sheet.cell(row=i, column=isbn_col).value
+                        if cell_value is not None:
+                            isbn = str(cell_value).strip()
+                        else:
+                            isbn = ""
+                            
+                        if not isbn:
+                            continue
 
-                    jd_price = self.fetch_price_jd(isbn)
-                    dd = self.fetch_price_dd(isbn)
-                    dd_price = dd['price']
-                    dd_discount = dd['discount']
+                        jd_price = self.fetch_price_jd(isbn)
+                        dd = self.fetch_price_dd(isbn)
+                        
+                        # 添加类型检查
+                        dd_price = ""
+                        dd_discount = ""
+                        if dd is not None and isinstance(dd, dict):
+                            dd_price = dd.get('price', '')
+                            dd_discount = dd.get('discount', '')
 
-                    sheet.cell(row=i, column=jd_price_col).value = jd_price
-                    sheet.cell(row=i, column=dd_price_col).value = dd_price
-                    sheet.cell(row=i, column=dd_discount_col).value = dd_discount
+                        # 添加类型忽略注释以消除警告
+                        sheet.cell(row=i, column=jd_price_col).value = jd_price  # type: ignore
+                        sheet.cell(row=i, column=dd_price_col).value = dd_price  # type: ignore
+                        sheet.cell(row=i, column=dd_discount_col).value = dd_discount  # type: ignore
 
-                    sleep_time = random.uniform(1, 10)
-                    sleep_time = int(sleep_time)
-                    self.progress["value"] = i - 1
-                    self.log(
-                        f"{i - 1}/{total} ✅ {isbn} → 京东 ¥{jd_price or '未获取'} ｜ 当当 ¥{dd_price or '未获取'} {dd_discount} 下次请求：{sleep_time}秒后")
+                        sleep_time = random.uniform(10, 30)
+                        sleep_time = int(sleep_time)
+                        self.progress["value"] = i - 1
+                        self.log(
+                            f"{i - 1}/{total} ✅ {isbn} → 京东 ¥{jd_price or '未获取'} ｜ 当当 ¥{dd_price or '未获取'} {dd_discount} 下次请求：{sleep_time}秒后")
 
-                    time.sleep(sleep_time)
+                        time.sleep(sleep_time)
 
-                    # 在主线程安全更新UI
-                    self.root.update_idletasks()
-                except Exception:
-                    pass
+                        # 在主线程安全更新UI
+                        self.root.update_idletasks()
+                    except Exception:
+                        pass
 
-            wb.save(self.file_path)
-            self.log("🎉 全部完成，结果已写入 Excel！")
-            messagebox.showinfo("完成", "价格抓取完成！")
+                wb.save(self.file_path)
+                
+                # 计算总耗时
+                end_time = time.time()
+                elapsed_time = end_time - start_time
+                hours, rem = divmod(elapsed_time, 3600)
+                minutes, seconds = divmod(rem, 60)
+                
+                self.log("🎉 全部完成，结果已写入 Excel！")
+                self.log(f"⏱️ 任务总耗时: {int(hours):02d}时{int(minutes):02d}分{int(seconds):02d}秒")
+                messagebox.showinfo("完成", f"价格抓取完成！\n任务总耗时: {int(hours):02d}时{int(minutes):02d}分{int(seconds):02d}秒")
 
         except Exception as e:
             self.log(f"❌ 错误：{str(e)}")
@@ -161,127 +199,47 @@ class JDPriceFetcherApp:
 
     # ---------------- 浏览器初始化和京东登录 ----------------
     def init_browser(self):
-        """修复版本的浏览器初始化 - 多种后备方案"""
+        """简化版本的浏览器初始化 - 只使用 undetected_chromedriver"""
         self.log("🚀 正在初始化浏览器...")
         
-        # 方案1: 先尝试标准 Selenium + 无痕模式
+        # 只使用 undetected_chromedriver 方案
         try:
-            from selenium import webdriver
-            from selenium.webdriver.chrome.options import Options
+            import undetected_chromedriver as uc
+            # self.log("🔄 使用 undetected_chromedriver...")
             
-            self.log("🔧 尝试使用标准 Selenium ...")
-            
-            # 使用标准 Selenium 配置无痕模式
-            chrome_options = Options()
-            # chrome_options.add_argument("--incognito")  # 无痕模式
-            chrome_options.add_argument("--no-sandbox")
-            chrome_options.add_argument("--disable-dev-shm-usage")
-            chrome_options.add_argument("--disable-gpu")
-            chrome_options.add_argument("--disable-blink-features=AutomationControlled")
-            chrome_options.add_argument("--disable-extensions")
-            chrome_options.add_argument("--no-first-run")
-            chrome_options.add_argument("--disable-default-apps")
-            chrome_options.add_experimental_option("excludeSwitches", ["enable-automation"])
-            chrome_options.add_experimental_option('useAutomationExtension', False)
-            
+            # 创建选项
+            options = uc.ChromeOptions()
+            options.add_argument("--no-sandbox")
+            options.add_argument("--disable-dev-shm-usage")
+            options.add_argument("--disable-gpu")
+            options.add_argument("--disable-blink-features=AutomationControlled")
+            options.add_argument("--disable-extensions")
+            options.add_argument("--no-first-run")
+            options.add_argument("--disable-default-apps")
+            options.add_argument("--remote-debugging-port=9222")
+
             # 初始化驱动
-            self.driver = webdriver.Chrome(options=chrome_options)
-            
-            # 添加反检测脚本
-            self.driver.execute_script("Object.defineProperty(navigator, 'webdriver', {get: () => undefined})")
-            
+            self.driver = uc.Chrome(options=options, driver_executable_path="D:/chromedriver/chromedriver.exe", version_main=None)
             self.driver.maximize_window()
-            self.driver.get("data:text/html,<html><body><h1>Standard Incognito Test OK</h1></body></html>")
             
-            self.log("✅ 标准 Selenium 启动成功")
+            # 测试访问
+            self.driver.get("data:text/html,<html><body><h1>Undetected Test OK</h1></body></html>")
+            
+            self.log("✅ undetected_chromedriver 启动成功")
             return True
-                    
+
         except Exception as e:
-            self.log(f"⚠️ 标准 Selenium 失败: {e}")
-            
-            # 方案2: 尝试 undetected_chromedriver
-            try:
-                import undetected_chromedriver as uc
-                self.log("🔄 尝试使用 undetected_chromedriver...")
-                
-                # 创建选项
-                options = uc.ChromeOptions()
-                options.add_argument("--no-sandbox")
-                options.add_argument("--disable-dev-shm-usage")
-                options.add_argument("--disable-gpu")
-                options.add_argument("--disable-blink-features=AutomationControlled")
-                options.add_argument("--disable-extensions")
-                options.add_argument("--no-first-run")
-                options.add_argument("--disable-default-apps")
-                options.add_argument("--remote-debugging-port=9222")
-
-                # 初始化驱动
-                self.driver = uc.Chrome(options=options, version_main=None)
-                self.driver.maximize_window()
-                
-                # 测试访问
-                self.driver.get("data:text/html,<html><body><h1>Undetected Test OK</h1></body></html>")
-                
-                self.log("✅ undetected_chromedriver 启动成功")
-                return True
-
-            except Exception as e2:
-                self.log(f"⚠️ undetected_chromedriver 也失败: {e2}")
-                
-                # 方案3: 最后尝试 webdriver-manager
-                try:
-                    self.log("🔄 尝试安装并使用 webdriver-manager...")
-                    import subprocess
-                    import sys
-                    
-                    # 安装 webdriver-manager
-                    result = subprocess.run([sys.executable, "-m", "pip", "install", "webdriver-manager"], 
-                                          capture_output=True, text=True)
-                    
-                    if result.returncode == 0:
-                        from selenium import webdriver
-                        from selenium.webdriver.chrome.service import Service
-                        from selenium.webdriver.chrome.options import Options
-                        from webdriver_manager.chrome import ChromeDriverManager
-                        
-                        chrome_options = Options()
-                        # chrome_options.add_argument("--incognito")  # 无痕模式
-                        chrome_options.add_argument("--no-sandbox")
-                        chrome_options.add_argument("--disable-dev-shm-usage")
-                        chrome_options.add_argument("--disable-gpu")
-                        chrome_options.add_argument("--disable-blink-features=AutomationControlled")
-                        chrome_options.add_experimental_option("excludeSwitches", ["enable-automation"])
-                        chrome_options.add_experimental_option('useAutomationExtension', False)
-                        
-                        service = Service(ChromeDriverManager().install())
-                        self.driver = webdriver.Chrome(service=service, options=chrome_options)
-                        
-                        # 添加反检测脚本
-                        self.driver.execute_script("Object.defineProperty(navigator, 'webdriver', {get: () => undefined})")
-                        
-                        self.driver.maximize_window()
-                        self.driver.get("data:text/html,<html><body><h1>WebDriver Manager Test OK</h1></body></html>")
-                        
-                        self.log("✅ webdriver-manager 启动成功")
-                        return True
-                    else:
-                        self.log("❌ webdriver-manager 安装失败")
-                        
-                except Exception as e3:
-                    self.log(f"❌ webdriver-manager 也失败: {e3}")
-                    
-            # 所有方案都失败
-            self.log("❌ 所有浏览器启动方案都失败")
+            self.log(f"❌ undetected_chromedriver 启动失败: {e}")
             
             # 详细错误信息
             import traceback
-            self.log(f"详细错误：{traceback.format_exc()}")
+            # self.log(f"详细错误：{traceback.format_exc()}")
             
             # 提供解决方案
             self.log("💡 可能的解决方案:")
             self.log("   1. 检查网络连接是否正常")
             self.log("   2. 关闭防火墙或杀毒软件")
-            self.log("   3. 运行: pip install webdriver-manager")
+            self.log("   3. 运行: pip install undetected-chromedriver")
             self.log("   4. 手动下载 ChromeDriver 并加入 PATH")
             
             return False
@@ -307,7 +265,8 @@ class JDPriceFetcherApp:
                     self.root.update_idletasks()
                     return True
                 except Exception as e:
-                    self.log(f"加载 cookie 失败：{e}")
+                    # self.log(f"加载 cookie 失败：{e}")
+                    self.log("⚠️ 加载 cookie 失败，需要重新登录")
             
             # 需要手动登录
             messagebox.showinfo("登录提示", "请在打开的浏览器中扫码登录京东，然后点击确定继续。")
@@ -389,7 +348,7 @@ class JDPriceFetcherApp:
         
         for indicator in login_indicators:
             if indicator in current_url.lower():
-                self.log(f"🔍 检测到登录页指示器: {indicator}")
+                # self.log(f"🔍 检测到登录页指示器: {indicator}")
                 return True
         
         return False
@@ -400,14 +359,15 @@ class JDPriceFetcherApp:
             # 删除过期cookie文件
             if os.path.exists(JD_COOKIES_PKL):
                 os.remove(JD_COOKIES_PKL)
-                self.log("✅ 已删除过期cookie文件")
+                # self.log("✅ 已删除过期cookie文件")
             
             # 清理浏览器中cookie
-            self.driver.delete_all_cookies()
-            self.log("✅ 已清理浏览器cookie")
+            if self.driver is not None:  # 添加类型检查
+                self.driver.delete_all_cookies()
+                # self.log("✅ 已清理浏览器cookie")
             
             # 重新登录
-            self.log("🔄 尝试重新登录...")
+            # self.log("🔄 尝试重新登录...")
             return self.login_or_load_jd_cookie()
             
         except Exception as e:
@@ -418,9 +378,14 @@ class JDPriceFetcherApp:
         """提取京东自营商品价格 - 根据实际页面结构修复"""
         driver = self.driver
         
+        # 添加类型检查
+        if driver is None:
+            self.log("⚠️ 浏览器未初始化")
+            return "错误"
+        
         try:
             # 等待商品列表加载 - 使用您提供的实际选择器
-            self.log("⏳ 等待商品列表加载...")
+            # self.log("⏳ 等待商品列表加载...")
              
             # 使用您提供的实际商品容器选择器
             container_selector = "._wrapper_f6icl_11"
@@ -430,13 +395,13 @@ class JDPriceFetcherApp:
                     EC.presence_of_all_elements_located((By.CSS_SELECTOR, container_selector))
                 )
                 containers = driver.find_elements(By.CSS_SELECTOR, container_selector)
-                self.log(f"✅ 找到 {len(containers)} 个商品容器")
+                # self.log(f"✅ 找到 {len(containers)} 个商品容器")
             except TimeoutException:
-                self.log("⚠️ 等待商品容器超时")
+                # self.log("⚠️ 等待商品容器超时")
                 return "超时"
             
             if not containers:
-                self.log("⚠️ 未找到商品容器")
+                # self.log("⚠️ 未找到商品容器")
                 return "超时"
             
             # 只处理第一个容器（真正的搜索结果），但要遍历其中所有商品
@@ -457,22 +422,23 @@ class JDPriceFetcherApp:
                 try:
                     items = main_container.find_elements(By.CSS_SELECTOR, selector)
                     if items:
-                        self.log(f"✅ 使用选择器 '{selector}' 在主容器中找到 {len(items)} 个商品项")
+                        # self.log(f"✅ 使用选择器 '{selector}' 在主容器中找到 {len(items)} 个商品项")
                         break
                     else:
-                        self.log(f"⚠️ 选择器 '{selector}' 未找到商品")
+                        # self.log(f"⚠️ 选择器 '{selector}' 未找到商品")
+                        pass
                 except Exception as e:
-                    self.log(f"⚠️ 选择器 '{selector}' 查找失败: {e}")
+                    # self.log(f"⚠️ 选择器 '{selector}' 查找失败: {e}")
                     continue
             
             if not items:
-                self.log("⚠️ 所有选择器都未找到商品项，尝试直接从容器中获取所有子元素")
+                # self.log("⚠️ 所有选择器都未找到商品项，尝试直接从容器中获取所有子元素")
                 try:
                     # 最后的后备方案：获取所有直接子元素
                     items = main_container.find_elements(By.XPATH, "./*")
-                    self.log(f"✅ 后备方案找到 {len(items)} 个子元素")
+                    # self.log(f"✅ 后备方案找到 {len(items)} 个子元素")
                 except Exception as e:
-                    self.log(f"⚠️ 后备方案也失败: {e}")
+                    # self.log(f"⚠️ 后备方案也失败: {e}")
                     return "超时"
 
 
@@ -480,7 +446,7 @@ class JDPriceFetcherApp:
             for i, item in enumerate(items):
                 try:
                     # 检查是否为自营商品 - 使用您提供的实际结构
-                    self.log(f"🔍 检查商品 #{i+1} 是否为自营...")
+                    # self.log(f"🔍 检查商品 #{i+1} 是否为自营...")
                     
                     # 使用您提供的自营标签结构
                     self_support_selector = 'div._imgTag_1qbwk_1 img[alt="自营"]'
@@ -488,21 +454,21 @@ class JDPriceFetcherApp:
                     try:
                         tag = item.find_element(By.CSS_SELECTOR, self_support_selector)
                         if tag:
-                            self.log(f"✅ 找到自营商品 #{i+1}")
+                            # self.log(f"✅ 找到自营商品 #{i+1}")
                             
                             # 提取价格 - 使用您提供的实际价格结构
                             price = self.extract_price_from_item(item, i+1)
                             if price:
                                 return price
                     except NoSuchElementException:
-                        self.log(f"⚠️ 商品 #{i+1} 不是自营")
+                        # self.log(f"⚠️ 商品 #{i+1} 不是自营")
                         continue
                                 
                 except Exception as e:
-                    self.log(f"⚠️ 处理商品 #{i+1} 时出错: {e}")
+                    # self.log(f"⚠️ 处理商品 #{i+1} 时出错: {e}")
                     continue
 
-            self.log("⚠️ 未找到自营商品或价格")
+            # self.log("⚠️ 未找到自营商品或价格")
             return "无自营"
             
         except Exception as e:
@@ -512,7 +478,7 @@ class JDPriceFetcherApp:
     def extract_price_from_item(self, item, item_num):
         """从单个商品容器中提取价格 - 修复小数部分提取"""
         try:
-            self.log(f"📍 开始提取商品 #{item_num} 的价格...")
+            # self.log(f"📍 开始提取商品 #{item_num} 的价格...")
             
             # 方法1: 使用您提供的完整价格结构 - 修复版本
             # <span class="_price_uqsva_14"><i class="_yen_uqsva_20">¥</i>65<span>.</span><span class="_decimal_uqsva_28">99</span></span>
@@ -521,7 +487,7 @@ class JDPriceFetcherApp:
                 if price_container:
                     # 获取整个价格容器的文本
                     full_price_text = price_container.text.strip()
-                    self.log(f"🔍 方法1 - 找到价格容器，原始文本: {repr(full_price_text)}")
+                    # self.log(f"🔍 方法1 - 找到价格容器，原始文本: {repr(full_price_text)}")
                     if full_price_text:
                         # 清理价格数据，处理换行和空格
                         clean_price = full_price_text.replace("¥", "").replace("￥", "").replace("\n", "").replace(" ", "").strip()
@@ -529,24 +495,29 @@ class JDPriceFetcherApp:
                         import re
                         # 提取所有数字和小数点，然后重新组合
                         numbers_and_dots = re.findall(r'[\d\.]+', clean_price)
-                        self.log(f"🔍 方法1 - 清理后: '{clean_price}', 提取的数字: {numbers_and_dots}")
+                        # self.log(f"🔍 方法1 - 清理后: '{clean_price}', 提取的数字: {numbers_and_dots}")
                         if numbers_and_dots:
                             # 将提取的数字部分连接起来
                             reconstructed_price = ''.join(numbers_and_dots)
                             # 验证是否为有效价格格式
                             if re.match(r'^\d+\.\d+$|^\d+$', reconstructed_price):
-                                self.log(f"✅ 方法1成功：商品 #{item_num} 价格: {reconstructed_price}")
+                                # self.log(f"✅ 方法1成功：商品 #{item_num} 价格: {reconstructed_price}")
                                 return reconstructed_price
                         else:
-                            self.log(f"⚠️ 方法1 - 未找到数字")
+                            # self.log(f"⚠️ 方法1 - 未找到数字")
+                            pass
                     else:
-                        self.log(f"⚠️ 方法1 - 价格文本为空")
+                        # self.log(f"⚠️ 方法1 - 价格文本为空")
+                        pass
                 else:
-                    self.log(f"⚠️ 方法1 - 未找到价格容器")
+                    # self.log(f"⚠️ 方法1 - 未找到价格容器")
+                    pass
             except NoSuchElementException:
-                self.log(f"⚠️ 方法1 - NoSuchElementException: span._price_uqsva_14")
+                # self.log(f"⚠️ 方法1 - NoSuchElementException: span._price_uqsva_14")
+                pass
             except Exception as e:
-                self.log(f"⚠️ 方法1异常: {e}")
+                # self.log(f"⚠️ 方法1异常: {e}")
+                pass
             
             # 方法2: 手动组合价格元素 - 完整版本
             try:
@@ -567,12 +538,12 @@ class JDPriceFetcherApp:
                     integer_part = integer_match.group(1)
                     decimal_part = decimal_elements[0].text.strip()
                     full_price = f"{integer_part}.{decimal_part}"
-                    self.log(f"✅ 方法2成功：商品 #{item_num} 价格: {full_price} (整数: {integer_part}, 小数: {decimal_part})")
+                    # self.log(f"✅ 方法2成功：商品 #{item_num} 价格: {full_price} (整数: {integer_part}, 小数: {decimal_part})")
                     return full_price
                 elif integer_match:
                     # 如果没有小数部分，只返回整数
                     integer_part = integer_match.group(1)
-                    self.log(f"✅ 方法2成功：商品 #{item_num} 价格: {integer_part} (仅整数部分)")
+                    # self.log(f"✅ 方法2成功：商品 #{item_num} 价格: {integer_part} (仅整数部分)")
                     return integer_part
                 else:
                     # 备用方案：从整个HTML中提取数字
@@ -582,11 +553,11 @@ class JDPriceFetcherApp:
                         integer_part = all_numbers[0]
                         decimal_part = all_numbers[1]
                         full_price = f"{integer_part}.{decimal_part}"
-                        self.log(f"✅ 方法2备用成功：商品 #{item_num} 价格: {full_price}")
+                        # self.log(f"✅ 方法2备用成功：商品 #{item_num} 价格: {full_price}")
                         return full_price
                     elif len(all_numbers) == 1:
                         price = all_numbers[0]
-                        self.log(f"✅ 方法2备用成功：商品 #{item_num} 价格: {price} (仅整数)")
+                        # self.log(f"✅ 方法2备用成功：商品 #{item_num} 价格: {price} (仅整数)")
                         return price
                     
             except NoSuchElementException:
@@ -612,7 +583,7 @@ class JDPriceFetcherApp:
                         matches = re.findall(pattern, container_text)
                         if matches:
                             price = matches[0]
-                            self.log(f"✅ 方法3成功：商品 #{item_num} 正则提取价格: {price} (模式: {pattern})")
+                            # self.log(f"✅ 方法3成功：商品 #{item_num} 正则提取价格: {price} (模式: {pattern})")
                             return price
                             
             except Exception:
@@ -640,7 +611,7 @@ class JDPriceFetcherApp:
                         price_match = re.search(r'\d+\.\d+|\d+', price_text)
                         if price_match:
                             price = price_match.group()
-                            self.log(f"✅ 方法4成功：商品 #{item_num} 价格: {price}（选择器: {price_sel}）")
+                            # self.log(f"✅ 方法4成功：商品 #{item_num} 价格: {price}（选择器: {price_sel}）")
                             return price
                 except NoSuchElementException:
                     continue
@@ -662,17 +633,17 @@ class JDPriceFetcherApp:
                         matches = re.findall(pattern, all_text)
                         if matches:
                             price = matches[0]
-                            self.log(f"✅ 方法5成功：商品 #{item_num} 正则提取价格: {price}")
+                            # self.log(f"✅ 方法5成功：商品 #{item_num} 正则提取价格: {price}")
                             return price
                             
             except Exception:
                 pass
                 
-            self.log(f"⚠️ 商品 #{item_num} 未能提取到价格")
+            # self.log(f"⚠️ 商品 #{item_num} 未能提取到价格")
             return None
             
         except Exception as e:
-            self.log(f"⚠️ 商品 #{item_num} 价格提取异常: {e}")
+            # self.log(f"⚠️ 商品 #{item_num} 价格提取异常: {e}")
             return None
 
     # ---------------- 获取当当价格 ----------------
@@ -684,43 +655,61 @@ class JDPriceFetcherApp:
                           "(KHTML, like Gecko) Chrome/118.0.0.0 Safari/537.36"
         }
 
-        print(f"📡 请求当当搜索页：{search_url}")
+        # print(f"📡 请求当当搜索页：{search_url}")
         resp = requests.get(search_url, headers=headers, timeout=15)
 
         if resp.status_code != 200:
-            print("❌ 搜索页请求失败")
-            return None
+            # print("❌ 搜索页请求失败")
+            return {"price": "", "discount": ""}
 
         html = resp.text
-        cookies = resp.cookies.get_dict()
-        # 提取 search_passback cookie（部分情况下不在 resp.cookies，需要从 Set-Cookie 头中匹配）
-        cookie_header = resp.headers.get("Set-Cookie", "")
-        match_passback = re.search(r"search_passback=([^;]+)", cookie_header)
-        search_passback = match_passback.group(1) if match_passback else cookies.get("search_passback", "")
-
         # 解析 HTML
         soup = BeautifulSoup(html, "html.parser")
 
+        # 查找指定的商品区域
+        search_area = soup.find("div", {"id": "search_nature_rg", "dd_name": "普通商品区域"})
+        if not search_area:
+            # print("⚠️ 未找到商品区域")
+            return {"price": "", "discount": ""}
+
+        # 查找第一个商品项
+        first_item = search_area.find("li")
+        if not first_item:
+            # print("⚠️ 未找到商品项")
+            return {"price": "", "discount": ""}
+
+        # 检查是否存在"到货通知"标签，如果存在则表示无货
+        # 使用类型忽略注释来解决类型检查问题
+        arrival_notice = first_item.find("a", {"class": "search_btn_cart", "name": "pdno"})  # type: ignore
+        if arrival_notice and "到货通知" in arrival_notice.get_text():  # type: ignore
+            # print("📦 商品暂时无货，需要到货通知")
+            return {"price": "", "discount": ""}
+
         # 提取价格
-        price_tag = soup.select_one("span.search_now_price")
-        price = price_tag.text.strip().replace("¥", "").replace("&yen;", "") if price_tag else ""
+        price_tag = first_item.find("span", {"class": "search_now_price"})  # type: ignore
+        price = price_tag.get_text().strip().replace("¥", "").replace("&yen;", "") if price_tag else ""  # type: ignore
 
         # 提取商品ID
-        # 常见形式：data-sku="29281138" 或 href="product.dangdang.com/29281138.html"
+        # 使用类型检查来解决类型问题
         product_id = None
-        match_id = re.search(r'product\.dangdang\.com/(\d+)\.html', html)
-        if match_id:
-            product_id = match_id.group(1)
-        else:
-            match_id = re.search(r'data-sku=["\'](\d+)["\']', html)
-            if match_id:
-                product_id = match_id.group(1)
+        if hasattr(first_item, 'get'):  # type: ignore
+            product_id = first_item.get("sku") if first_item.has_attr("sku") else None  # type: ignore
+        if not product_id:
+            # 尝试从链接中提取ID
+            product_link = first_item.find("a", {"class": "pic"})  # type: ignore
+            if product_link and hasattr(product_link, 'get'):  # type: ignore
+                href = product_link.get("href", "")  # type: ignore
+                # 确保 href 是字符串类型
+                if isinstance(href, str):
+                    match = re.search(r'product\.dangdang\.com/(\d+)\.html', href)
+                    if match:
+                        product_id = match.group(1)
 
         if not product_id:
-            print("⚠️ 未找到商品ID，无法继续获取优惠")
+            # print("⚠️ 未找到商品ID，无法继续获取优惠")
             return {"price": price, "discount": ""}
 
-        print(f"✅ 当当价格：¥{price}，商品ID：{product_id}")
+        # print(f"✅ 当当价格：¥{price}，商品ID：{product_id}")
 
         # 第2步：请求优惠接口
         promo_url = (
@@ -730,6 +719,12 @@ class JDPriceFetcherApp:
             f"&url=0%2F%3Fkey%3D{isbn}%26act%3Dinput%26filter%3D0%7C0%7C0%7C0%7C0%7C1%7C0%7C0%7C0%7C0%7C0%7C0%7C0%7C0%7C0"
             f"&c=false&l=7b2eea5e6454245e9e56ac31ae24f124"
         )
+
+        # 提取 cookies
+        cookies = resp.cookies.get_dict()
+        cookie_header = resp.headers.get("Set-Cookie", "")
+        match_passback = re.search(r"search_passback=([^;]+)", cookie_header)
+        search_passback = match_passback.group(1) if match_passback else cookies.get("search_passback", "")
 
         cookie_str = (
             "ddscreen=2; "
@@ -748,27 +743,33 @@ class JDPriceFetcherApp:
             "User-Agent": headers["User-Agent"]
         }
 
-        print(f"📡 请求优惠接口：{promo_url}")
-        promo_resp = requests.get(promo_url, headers=promo_headers, timeout=10)
+        # print(f"📡 请求优惠接口：{promo_url}")
+        try:
+            promo_resp = requests.get(promo_url, headers=promo_headers, timeout=10)
 
-        if promo_resp.status_code != 200:
-            print("⚠️ 优惠接口请求失败")
+            if promo_resp.status_code != 200:
+                # print("⚠️ 优惠接口请求失败")
+                return {"price": price, "discount": ""}
+
+            data = promo_resp.json()
+            promo_list = data.get(product_id, [])
+            discounts = [item["label_name"] for item in promo_list if item["label_name"] not in ("自营", "券")]
+            discount_text = "，".join(discounts) if discounts else "无"
+
+            # print(f"✅ 优惠信息：{discount_text}")
+            return {"price": price, "discount": discount_text}
+        except Exception as e:
+            # print(f"⚠️ 优惠信息获取异常：{e}")
             return {"price": price, "discount": ""}
-
-        data = promo_resp.json()
-        promo_list = data.get(product_id, [])
-        discounts = [item["label_name"] for item in promo_list if item["label_name"] not in ("自营", "券")]
-        discount_text = "，".join(discounts) if discounts else "无"
-
-        print(f"✅ 优惠信息：{discount_text}")
-        return {"price": price, "discount": discount_text}
-
     # ---------------- 测试方法 ----------------
     def test_jd_access(self):
         """测试京东访问功能"""
         def run_test():
             try:
                 self.log("🧪 开始测试京东访问...")
+                
+                # 记录开始时间
+                start_time = time.time()
                 
                 # 初始化浏览器
                 if not self.init_browser():
@@ -803,13 +804,21 @@ class JDPriceFetcherApp:
                         self.log("⏳ 等待5秒...")
                         time.sleep(5)
                 
+                # 计算总耗时
+                end_time = time.time()
+                elapsed_time = end_time - start_time
+                hours, rem = divmod(elapsed_time, 3600)
+                minutes, seconds = divmod(rem, 60)
+                
                 # 测试结果
                 if success_count > 0:
                     self.log(f"✅ 测试完成！成功获取 {success_count}/{len(test_isbns)} 个价格")
-                    messagebox.showinfo("测试结果", f"测试成功！\n成功获取 {success_count}/{len(test_isbns)} 个价格")
+                    self.log(f"⏱️ 测试总耗时: {int(hours):02d}时{int(minutes):02d}分{int(seconds):02d}秒")
+                    messagebox.showinfo("测试结果", f"测试成功！\n成功获取 {success_count}/{len(test_isbns)} 个价格\n测试总耗时: {int(hours):02d}时{int(minutes):02d}分{int(seconds):02d}秒")
                 else:
                     self.log("❌ 测试失败：未能获取任何价格")
-                    messagebox.showwarning("测试结果", "测试失败！\n未能获取任何价格，请检查网络和登录状态")
+                    self.log(f"⏱️ 测试总耗时: {int(hours):02d}时{int(minutes):02d}分{int(seconds):02d}秒")
+                    messagebox.showwarning("测试结果", f"测试失败！\n未能获取任何价格，请检查网络和登录状态\n测试总耗时: {int(hours):02d}时{int(minutes):02d}分{int(seconds):02d}秒")
                 
             except Exception as e:
                 self.log(f"❌ 测试过程中发生错误：{e}")
@@ -821,6 +830,64 @@ class JDPriceFetcherApp:
         # 在新线程中运行测试，防止阻塞UI
         threading.Thread(target=run_test, daemon=True).start()
 
+    # ---------------- 测试当当访问方法 ----------------
+    def test_dd_access(self):
+        """测试当当访问功能"""
+        def run_test():
+            # 记录开始时间
+            start_time = time.time()
+            
+            try:
+                self.log("🧪 开始测试当当访问...")
+                
+                # 测试ISBN列表
+                test_isbns = [
+                    "9787513948128",  # 测试书号1
+                    "9787229192914"   # 测试书号2
+                ]
+                
+                success_count = 0
+                for i, isbn in enumerate(test_isbns, 1):
+                    self.log(f"🔍 {i}/{len(test_isbns)} 正在测试 ISBN: {isbn}")
+                    result = self.fetch_price_dd(isbn)
+                    
+                    # 检查是否成功获取价格
+                    if result and isinstance(result, dict) and result.get('price'):
+                        price = result['price']
+                        self.log(f"✅ 成功获取价格: ¥{price}")
+                        success_count += 1
+                    elif result and isinstance(result, dict) and result.get('price') == "":
+                        self.log("⚠️ 商品暂时无货或未找到")
+                    else:
+                        self.log("⚠️ 未获取到价格信息")
+                    
+                    # 防止请求过频
+                    if i < len(test_isbns):
+                        self.log("⏳ 等待3秒...")
+                        time.sleep(3)
+                
+                # 计算总耗时
+                end_time = time.time()
+                elapsed_time = end_time - start_time
+                hours, rem = divmod(elapsed_time, 3600)
+                minutes, seconds = divmod(rem, 60)
+                
+                # 测试结果
+                if success_count > 0:
+                    self.log(f"✅ 测试完成！成功获取 {success_count}/{len(test_isbns)} 个价格")
+                    self.log(f"⏱️ 测试总耗时: {int(hours):02d}时{int(minutes):02d}分{int(seconds):02d}秒")
+                    messagebox.showinfo("测试结果", f"测试成功！\n成功获取 {success_count}/{len(test_isbns)} 个价格\n测试总耗时: {int(hours):02d}时{int(minutes):02d}分{int(seconds):02d}秒")
+                else:
+                    self.log("⚠️ 测试完成：未能获取有效价格")
+                    self.log(f"⏱️ 测试总耗时: {int(hours):02d}时{int(minutes):02d}分{int(seconds):02d}秒")
+                    messagebox.showwarning("测试结果", f"测试完成！\n未能获取有效价格，请检查网络连接\n测试总耗时: {int(hours):02d}时{int(minutes):02d}分{int(seconds):02d}秒")
+                
+            except Exception as e:
+                self.log(f"❌ 测试过程中发生错误：{e}")
+                messagebox.showerror("测试错误", f"测试过程中发生错误：\n{e}")
+        
+        # 在新线程中运行测试，防止阻塞UI
+        threading.Thread(target=run_test, daemon=True).start()
 if __name__ == "__main__":
     root = tk.Tk()
     app = JDPriceFetcherApp(root)

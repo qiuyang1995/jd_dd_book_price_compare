@@ -199,6 +199,12 @@ pip install -r requirements-dev.txt
 python -m pytest tests/
 ```
 
+### 打包exe
+```bash
+pip install pyinstaller
+pyinstaller -F -w jd_dd_price_gui.py
+```
+
 ## 📄 许可证
 
 本项目仅供学习和研究使用。请遵守相关网站的使用条款和robots.txt规定。
