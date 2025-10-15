@@ -201,8 +201,7 @@ python -m pytest tests/
 
 ### 打包exe
 ```bash
-pip install pyinstaller
-pyinstaller -F -w jd_dd_price_gui.py
+pyinstaller --clean -F jd_dd_price_gui.py
 ```
 
 ## 📄 许可证
