@@ -1,15 +1,15 @@
 # 📚 图书价格抓取工具（京东 + 当当）
 
-一个基于 Python 和 Selenium 的自动化图书价格抓取工具，支持从京东和当当网获取图书价格信息，并将结果保存到 Excel 文件中。
+一个基于 Python、Playwright 和 tkinter 的自动化图书价格抓取工具，支持从京东和当当网获取图书价格信息，并将结果保存到 Excel 文件中。
 
 ## ✨ 功能特点
 
 - 🔍 **智能价格抓取**：自动从京东和当当网获取图书价格
 - 🛒 **自营商品识别**：京东仅抓取自营商品价格，确保正品
-- 🍪 **智能登录管理**：自动检测Cookie过期并重新登录
-- 🌐 **反检测机制**：使用多重浏览器启动方案，绕过网站反爬机制
+- 🍪 **智能登录管理**：首次人工扫码，后续复用本地持久化登录态
+- 🌐 **浏览器自动化**：使用 Playwright 管理京东浏览器会话
 - 📊 **Excel集成**：直接读取Excel中的ISBN信息，并将结果写回Excel
-- 🚀 **多重启动方案**：标准Selenium → undetected_chromedriver → webdriver-manager
+- 🧱 **模块化结构**：GUI、京东抓取、当当抓取、Excel 处理拆分为独立模块
 - 🔒 **无痕模式**：默认使用浏览器无痕模式，保护隐私
 - 📈 **实时进度显示**：GUI界面显示抓取进度和详细日志
 
@@ -17,15 +17,15 @@
 
 ### 核心技术栈
 - **GUI框架**：tkinter
-- **网页自动化**：Selenium WebDriver + undetected_chromedriver
+- **网页自动化**：Playwright
 - **数据处理**：openpyxl (Excel操作)
 - **网络请求**：requests (当当网API)
 - **HTML解析**：BeautifulSoup4
 
-### 浏览器驱动策略
-1. **标准Selenium** (优先) - 配置无痕模式和反检测参数
-2. **undetected_chromedriver** (备用) - 专业反检测浏览器
-3. **webdriver-manager** (最终备用) - 自动下载驱动管理
+### 京东浏览器策略
+1. **Playwright 持久化上下文** - 自动保存并复用登录态
+2. **首次人工扫码登录** - 首次运行时在浏览器中完成扫码
+3. **后续自动复用** - 再次运行时直接沿用本地浏览器上下文
 
 ## 📋 系统要求
 
@@ -36,7 +36,8 @@
 
 ### Python依赖包
 ```bash
-pip install tkinter requests openpyxl selenium undetected-chromedriver beautifulsoup4 webdriver-manager
+pip install requests openpyxl beautifulsoup4 playwright
+python -m playwright install chromium
 ```
 
 ## 🚀 快速开始
@@ -47,8 +48,11 @@ pip install tkinter requests openpyxl selenium undetected-chromedriver beautiful
 git clone <repository-url>
 cd jd_dd_book_price_compare
 
-# 安装Python依赖
+# 安装 Python 依赖
 pip install -r requirements.txt
+
+# 安装 Playwright 浏览器
+python -m playwright install chromium
 ```
 
 ### 2. 准备Excel文件
@@ -70,7 +74,7 @@ python jd_dd_price_gui.py
 1. 点击 **"选择 Excel 文件"** 选择包含ISBN的Excel文件
 2. 点击 **"测试京东访问"** 验证系统功能（可选）
 3. 点击 **"开始执行"** 开始价格抓取
-4. 首次使用需要在浏览器中手动登录京东账号
+4. 首次使用需要在浏览器中手动扫码登录京东账号
 5. 程序会自动抓取价格并保存到Excel文件
 
 ## 🔧 核心功能详解
@@ -88,18 +92,8 @@ python jd_dd_price_gui.py
 
 ### 智能登录管理
 ```python
-# 自动检测Cookie过期
-def is_redirected_to_login(self, current_url):
-    login_indicators = [
-        'passport.jd.com', 'login.jd.com', '/login',
-        'auth.jd.com', 'signin.jd.com'
-    ]
-    return any(indicator in current_url.lower() for indicator in login_indicators)
-
-# 自动处理Cookie过期
-def handle_cookie_expiration(self):
-    # 删除过期Cookie文件和浏览器Cookie
-    # 触发重新登录流程
+with JDPlaywrightService() as jd_service:
+    jd_service.ensure_login(confirm_login)
 ```
 
 ## 📊 输出格式
@@ -112,13 +106,7 @@ def handle_cookie_expiration(self):
 ## ⚙️ 配置选项
 
 ### 浏览器配置
-```python
-# 标准Selenium配置
-chrome_options.add_argument("--incognito")  # 无痕模式
-chrome_options.add_argument("--no-sandbox")
-chrome_options.add_argument("--disable-dev-shm-usage")
-chrome_options.add_argument("--disable-blink-features=AutomationControlled")
-```
+程序优先尝试调用本机 Chrome 通道；若本机未安装 Chrome，则自动回退到 Playwright 自带 Chromium。
 
 ### 价格提取配置
 ```python
@@ -140,14 +128,13 @@ price_selector = "span._price_uqsva_14"
 ```
 💡 可能的解决方案:
 1. 检查网络连接是否正常
-2. 关闭防火墙或杀毒软件
-3. 运行: pip install webdriver-manager
-4. 手动下载 ChromeDriver 并加入 PATH
+2. 执行: python -m playwright install chromium
+3. 检查安全软件是否拦截浏览器启动
 ```
 
 **2. 登录状态失效**
-- 程序会自动检测并处理Cookie过期
-- 如遇问题，可手动删除 `jd_cookies.pkl` 文件
+- 程序会自动检测登录跳转并提示重新扫码
+- 如遇问题，可手动删除 `.playwright-jd-profile/` 目录
 
 **3. 价格获取失败**
 - 检查网络连接
@@ -162,7 +149,7 @@ price_selector = "span._price_uqsva_14"
 
 程序提供详细的运行日志：
 - 🚀 **启动阶段**：浏览器初始化状态
-- 🔑 **登录阶段**：Cookie加载和登录状态
+- 🔑 **登录阶段**：Playwright 登录态检测和人工扫码确认
 - 🔍 **抓取阶段**：每个ISBN的处理过程
 - ✅ **成功标识**：价格获取成功
 - ⚠️ **警告信息**：非关键错误
@@ -171,13 +158,13 @@ price_selector = "span._price_uqsva_14"
 ## 🔐 隐私和安全
 
 - **无痕模式**：默认使用浏览器无痕模式
-- **本地存储**：Cookie仅保存在本地
+- **本地存储**：Playwright 浏览器上下文仅保存在本地
 - **安全登录**：使用官方登录页面，不存储密码
 - **反检测**：多重反检测机制保护账号安全
 
 ## 📈 性能优化
 
-- **智能延时**：请求间随机延时1-10秒
+- **智能延时**：默认请求间隔 15-25 秒，异常时自动进一步拉长
 - **容错机制**：多种价格提取策略
 - **资源管理**：自动关闭浏览器释放资源
 - **并发控制**：单线程执行避免被封
@@ -196,7 +183,7 @@ cd jd_dd_book_price_compare
 pip install -r requirements-dev.txt
 
 # 运行测试
-python -m pytest tests/
+python -m unittest discover -s tests
 ```
 
 ### 打包exe
